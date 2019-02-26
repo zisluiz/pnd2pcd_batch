@@ -28,7 +28,7 @@ OPENCV_LIB_INC	=	$(WORK_DIR)/build-opencv/lib
 CPPFLAGS += $(foreach inc_dir,$(PCL_INC),-I$(inc_dir))
 CPPFLAGS += $(foreach inc_dir,$(OPENCV_INC),-I$(inc_dir))
 
-PCL_LIBS	=	pcl_io pcl_common boost_system boost_filesystem
+PCL_LIBS	=	pcl_io pcl_common boost-system boost-filesystem
 OPENCV_LIBS	=	opencv_core opencv_highgui opencv_imgcodecs 
 
 LDFLAGS	+=	-L$(PCL_LIB_INC) -L$(OPENCV_LIB_INC)

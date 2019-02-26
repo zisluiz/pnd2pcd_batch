@@ -192,7 +192,8 @@ void
 set_pixel ( RGB & pcl_color_pixel, cv::Mat & src, int x, int y, Intr& cam_params )
 {
     uint32_t rgb;
-    cv::Vec3b cur_rgb = src.at<cv::Vec3b>(y,x);// b,g,r
+    assert(src.type() == CV_8UC3);
+    cv::Vec4b cur_rgb = src.at<cv::Vec4b>(y,x);// b,g,r,a
     rgb =   ( static_cast<int> ( cur_rgb [ 2 ] ) ) << 16 |
             ( static_cast<int> ( cur_rgb [ 1 ] ) ) << 8 |
             ( static_cast<int> ( cur_rgb [ 0 ] ) );
@@ -204,13 +205,21 @@ template <>
 void
 set_pixel ( pcl::PointXYZ & xyz_pcl_pixel, cv::Mat & src, int x, int y, Intr& cam_params )
 {
-    xyz_pcl_pixel.z = src.at<unsigned short>( y * cam_params.width + x ) * cam_params.scale_factor;
-    xyz_pcl_pixel.x = xyz_pcl_pixel.z * ( x - cam_params.cx ) / cam_params.fx;
-    xyz_pcl_pixel.y = xyz_pcl_pixel.z * ( y - cam_params.cy ) / cam_params.fy;
+    assert(src.type() == CV_16U);
+    ushort depth = src.at<ushort>( y * cam_params.width + x );
+    xyz_pcl_pixel.z = depth * cam_params.scale_factor;
+
+    if (depth == 0) {
+        xyz_pcl_pixel.x = xyz_pcl_pixel.y = xyz_pcl_pixel.z = std::numeric_limits<float>::quiet_NaN();
+    }
+    else {
+        xyz_pcl_pixel.x = xyz_pcl_pixel.z * ( x - cam_params.cx ) / cam_params.fx;
+        xyz_pcl_pixel.y = xyz_pcl_pixel.z * ( y - cam_params.cy ) / cam_params.fy;
+    }
 }
 
 template < class T>
-bool
+void
 load_cloud ( const string & file_name, PointCloud<T> & pcl_cloud , Intr& cam_params )
 {
 
@@ -221,20 +230,19 @@ load_cloud ( const string & file_name, PointCloud<T> & pcl_cloud , Intr& cam_par
      int nchannels   =   cur_mat.channels();
      int step        =   cur_mat.step;
 
+     assert(width == cam_params.width);
+
      pcl_cloud.width   = width;
      pcl_cloud.height  = height;
-     pcl_cloud.is_dense = true;
+     pcl_cloud.is_dense = false;
      pcl_cloud.points.resize ( width * height );
 
      for ( int y = 0; y < height; y++ )
         for ( int x = 0; x < width; x++ )
         {
             T   current_pixel;
-
             set_pixel <T> ( current_pixel, cur_mat, x, y, cam_params );
-                  
             pcl_cloud (x, y ) = current_pixel;
-
         }
 
 }
@@ -256,17 +264,29 @@ main ( int argc, char* argv[] )
     {
         load_names_of_all_files_from_dir ( argv[1], depth_names );
         load_names_of_all_files_from_dir ( argv[2], rgb_names );
+
+        for ( int i = 0; i < rgb_names.size(); i++)
+        {
+            boost::filesystem::path path(rgb_names[i]);
+            stringstream ss;
+            ss << path.stem().string() << ".pcd";
+            pcd_file_names.push_back ( ss.str() );
+        }
     }
 
     // do we have data for continue ?
     if ( depth_names.empty() || depth_names.size() != rgb_names.size() )
         usage();
 
+    size_t total = pcd_file_names.size();
+    std::cout << "Total frames: " << total << std::endl;
+
     Intr cam_params; 
     load_camera_intrinsics ( DEFAULT_CFG_FILE, cam_params );
 
-    for ( int i = 0; i < pcd_file_names.size(); i++)
+    for ( int i = 0; i < total; i++)
     {
+        std::cout << i * 100.0 / total << "%" << std::endl;
         PointCloud < RGB >          current_color_cloud;
         PointCloud < PointXYZ >     current_xyz_cloud;
         PointCloud < PointXYZRGBA > current_xyzrgb_cloud;
@@ -278,7 +298,9 @@ main ( int argc, char* argv[] )
         copyPointCloud ( current_xyz_cloud, current_xyzrgb_cloud );
         for ( size_t ii = 0; ii < current_color_cloud.size (); ++ii )
             current_xyzrgb_cloud.points[ii].rgba = current_color_cloud.points[ii].rgba;
-                
+
+        std::cout << "Saved file: " << pcd_file_names[i] << std::endl;
+        
         pcl::io::savePCDFileBinaryCompressed<pcl::PointXYZRGBA> ( pcd_file_names[i], current_xyzrgb_cloud );
     }
     return 0;
